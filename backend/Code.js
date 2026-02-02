@@ -27,12 +27,11 @@ function doPost(e) {
   try {
     const request = JSON.parse(e.postData.contents);
     const doc = SpreadsheetApp.getActiveSpreadsheet();
-    
+    const sheetName = 'RegistroPagos';
+    let sheet = doc.getSheetByName(sheetName);
+
     // --- ACTION: CREATE (Register Payment) ---
     if (!request.action || request.action === 'create') {
-      const sheetName = 'RegistroPagos';
-      let sheet = doc.getSheetByName(sheetName);
-
       if (!sheet) {
         sheet = doc.insertSheet(sheetName);
         sheet.appendRow([
@@ -53,7 +52,7 @@ function doPost(e) {
         request.data.unitCode,
         request.data.unitName,
         request.data.municipality,
-        request.data.status || 'Pending',
+        request.data.status || 'Pending Review',
         request.data.description || '',
         request.data.contactPhone || '',
         new Date()
@@ -64,7 +63,6 @@ function doPost(e) {
 
     // --- ACTION: READ (Get History) ---
     if (request.action === 'read') {
-      const sheet = doc.getSheetByName('RegistroPagos');
       if (!sheet) {
         return createJSONOutput({ 'result': 'success', 'data': [] });
       }
@@ -89,8 +87,34 @@ function doPost(e) {
 
       return createJSONOutput({ 'result': 'success', 'data': data });
     }
+
+    // --- ACTION: UPDATE (Approve/Reject) ---
+    if (request.action === 'update') {
+      if (!sheet) return createJSONOutput({ 'result': 'error', 'message': 'Sheet not found' });
+      
+      const rows = sheet.getDataRange().getValues();
+      const idToUpdate = request.data.id;
+      const newStatus = request.data.status;
+      
+      let found = false;
+      // Loop through rows (skip header)
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][COL.ID] === idToUpdate) {
+          // Update Status Column (Row is i+1 because sheet is 1-based)
+          sheet.getRange(i + 1, COL.STATUS + 1).setValue(newStatus);
+          found = true;
+          break;
+        }
+      }
+
+      if (found) {
+        return createJSONOutput({ 'result': 'success', 'message': 'Updated' });
+      } else {
+        return createJSONOutput({ 'result': 'error', 'message': 'ID not found' });
+      }
+    }
     
-    // --- ACTION: TRIGGER SETUP (Optional: Call this once via client or run manually) ---
+    // --- ACTION: TRIGGER SETUP ---
     if (request.action === 'setupTrigger') {
       setupTrigger();
       return createJSONOutput({ 'result': 'success', 'message': 'Daily trigger setup complete' });
@@ -107,27 +131,19 @@ function doPost(e) {
 
 /**
  * UTILITY: Run this function MANUALLY once from the Apps Script Editor
- * to set up the automatic daily check.
  */
 function setupTrigger() {
   const triggers = ScriptApp.getProjectTriggers();
-  // Avoid duplicates
   for (let i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === 'checkUpcomingPayments') {
       return; 
     }
   }
-  
-  ScriptApp.newTrigger('checkUpcomingPayments')
-      .timeBased()
-      .everyDays(1)
-      .atHour(8) // Run at 8 AM
-      .create();
+  ScriptApp.newTrigger('checkUpcomingPayments').timeBased().everyDays(1).atHour(8).create();
 }
 
 /**
  * AUTOMATIC TASK: Checks for payments due in 3 days.
- * This function is triggered by the time-driven trigger.
  */
 function checkUpcomingPayments() {
   const doc = SpreadsheetApp.getActiveSpreadsheet();
@@ -135,14 +151,11 @@ function checkUpcomingPayments() {
   if (!sheet) return;
 
   const rows = sheet.getDataRange().getValues();
-  // Skip header
   if (rows.length < 2) return;
 
   const today = new Date();
-  // Normalize today to start of day
   today.setHours(0, 0, 0, 0);
 
-  // We loop starting from index 1 (row 2)
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const status = row[COL.STATUS];
@@ -151,53 +164,24 @@ function checkUpcomingPayments() {
     const organism = row[COL.ORGANISM];
     const amount = row[COL.AMOUNT];
 
-    // Only check pending payments with a phone number
-    if (status === 'Pending' && phone) {
+    // Only notify for Pending Review or Approved (but unpaid) if you track paid status separately.
+    // Assuming 'Pending Review' needs checking.
+    if ((status === 'Pending Review' || status === 'Approved') && phone) {
       const paymentDate = new Date(paymentDateString);
       paymentDate.setHours(0, 0, 0, 0);
-
-      // Calculate difference in days
       const diffTime = paymentDate.getTime() - today.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-      // IF due in exactly 3 days
       if (diffDays === 3) {
-        const message = `🔔 *Recordatorio de Pago* 🔔\n\nEl pago para *${organism}* por un monto de *$${amount}* vence en 3 días (${paymentDateString}).\n\nPor favor tome sus previsiones.`;
+        const message = `🔔 *Recordatorio de Pago* 🔔\n\nEl pago para *${organism}* ($${amount}) vence en 3 días.\nEstado: ${status}`;
         sendWhatsAppNotification(phone, message);
       }
     }
   }
 }
 
-/**
- * SEND WHATSAPP: Connects to an external API.
- * NOTE: Google Apps Script cannot open 'wa.me' links automatically.
- * You MUST use a Gateway API like CallMeBot, Twilio, or Meta API.
- */
 function sendWhatsAppNotification(phone, message) {
-  // --- OPTION 1: CALLMEBOT (Free for personal use) ---
-  // You need to get an API Key from CallMeBot for the specific number.
-  // const apiKey = 'YOUR_API_KEY'; 
-  // const encodedMessage = encodeURIComponent(message);
-  // const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${encodedMessage}&apikey=${apiKey}`;
-  
-  // --- OPTION 2: Placeholder (Log for now) ---
   console.log(`[SIMULATION] Sending WhatsApp to ${phone}: ${message}`);
-  
-  // To make this work, uncomment lines below and use a real API service
-  /*
-  try {
-    UrlFetchApp.fetch(url);
-  } catch (e) {
-    console.error("Error sending WhatsApp: " + e.toString());
-    // Fallback: Send Email to Admin
-    MailApp.sendEmail({
-      to: Session.getActiveUser().getEmail(),
-      subject: "Fallo envío WhatsApp - Pago Próximo",
-      htmlBody: `No se pudo enviar WhatsApp al ${phone}. <br>Mensaje: ${message}`
-    });
-  }
-  */
 }
 
 function createJSONOutput(data) {

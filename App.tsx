@@ -95,7 +95,7 @@ function App() {
                     }`}
                   >
                     <History className="w-4 h-4 mr-2" />
-                    Historial
+                    Historial y Auditoría
                   </button>
                 )}
               </div>
@@ -141,7 +141,12 @@ function App() {
         )}
 
         {activeTab === 'history' && canViewHistory && (
-          <PaymentHistory records={records} />
+          <PaymentHistory 
+            records={records} 
+            user={user} 
+            scriptUrl={scriptUrl}
+            onRefresh={loadData}
+          />
         )}
       </main>
 

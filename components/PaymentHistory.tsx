@@ -1,16 +1,21 @@
 import React, { useState, useMemo } from 'react';
-import { PaymentRecord, PaymentType } from '../types';
-import { Search, Filter, ArrowDownUp } from 'lucide-react';
+import { PaymentRecord, PaymentType, User, PaymentStatus } from '../types';
+import { Search, Filter, ArrowDownUp, Check, X, MessageSquare } from 'lucide-react';
 import { PAYMENT_TYPES } from '../constants';
+import { updatePaymentStatus } from '../services/sheetService';
 
 interface PaymentHistoryProps {
   records: PaymentRecord[];
+  user: User;
+  scriptUrl: string;
+  onRefresh: () => void;
 }
 
-const PaymentHistory: React.FC<PaymentHistoryProps> = ({ records }) => {
+const PaymentHistory: React.FC<PaymentHistoryProps> = ({ records, user, scriptUrl, onRefresh }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   const filteredRecords = useMemo(() => {
     return records
@@ -31,17 +36,72 @@ const PaymentHistory: React.FC<PaymentHistoryProps> = ({ records }) => {
       });
   }, [records, searchTerm, typeFilter, sortOrder]);
 
+  const handleApproval = async (record: PaymentRecord, approved: boolean) => {
+    setProcessingId(record.id);
+    const newStatus: PaymentStatus = approved ? 'Approved' : 'Rejected';
+    
+    // 1. Update Backend
+    const success = await updatePaymentStatus(record.id, newStatus, scriptUrl);
+    
+    if (success) {
+      // 2. Trigger Report (WhatsApp)
+      const actionText = approved ? "APROBADO" : "RECHAZADO";
+      const icon = approved ? "✅" : "❌";
+      
+      const message = `*${icon} REPORTE DE AUDITORÍA DE PAGOS*%0A%0A` +
+        `*Resultado:* ${actionText}%0A` +
+        `*Organismo:* ${record.organism}%0A` +
+        `*Monto:* $${record.amount}%0A` +
+        `*Auditor:* ${user.name}%0A` +
+        `*Fecha:* ${new Date().toLocaleDateString()}%0A%0A` +
+        `_Sistema de Control Fiscal_`;
+
+      // Open WhatsApp
+      window.open(`https://wa.me/?text=${message}`, '_blank');
+      
+      // 3. Refresh Data
+      onRefresh();
+    } else {
+      alert("Error al actualizar el estado. Verifique su conexión.");
+    }
+    setProcessingId(null);
+  };
+
+  // Logic: Viewers (Auditors) and Admins can approve. Payers cannot.
+  const canApprove = ['admin', 'viewer'].includes(user.role);
+
+  const getStatusColor = (status: PaymentStatus) => {
+    switch(status) {
+      case 'Approved': return 'bg-green-100 text-green-800';
+      case 'Rejected': return 'bg-red-100 text-red-800';
+      case 'Pending Review': return 'bg-yellow-100 text-yellow-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getStatusLabel = (status: PaymentStatus) => {
+    switch(status) {
+      case 'Approved': return 'Aprobado';
+      case 'Rejected': return 'Rechazado';
+      case 'Pending Review': return 'Revisión Pendiente';
+      default: return status;
+    }
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-6">
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h2 className="text-xl font-bold text-gray-800">Historial de Pagos Detallado</h2>
+        <div>
+           <h2 className="text-xl font-bold text-gray-800">Historial y Auditoría</h2>
+           <p className="text-xs text-gray-500">Paso 2: Revisión y Aprobación de Pagos</p>
+        </div>
         
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Buscar (Organismo, Desc...)"
+              placeholder="Buscar..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full"
@@ -78,10 +138,12 @@ const PaymentHistory: React.FC<PaymentHistoryProps> = ({ records }) => {
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organismo</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descripción</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Monto</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+              {canApprove && (
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones (Auditor)</th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -89,10 +151,12 @@ const PaymentHistory: React.FC<PaymentHistoryProps> = ({ records }) => {
               filteredRecords.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{record.paymentDateReal}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{record.organism}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">{record.description || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {record.organism}
+                    <div className="text-xs text-gray-400 font-normal">{record.description}</div>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-50 text-blue-700">
                       {record.paymentType}
                     </span>
                   </td>
@@ -100,12 +164,41 @@ const PaymentHistory: React.FC<PaymentHistoryProps> = ({ records }) => {
                     ${record.amount.toFixed(2)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      record.status === 'Paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {record.status || 'Pending'}
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(record.status)}`}>
+                      {getStatusLabel(record.status)}
                     </span>
                   </td>
+                  
+                  {canApprove && (
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      {record.status === 'Pending Review' ? (
+                        <div className="flex justify-center space-x-2">
+                           {processingId === record.id ? (
+                             <span className="text-gray-400 text-xs">Procesando...</span>
+                           ) : (
+                             <>
+                                <button 
+                                  onClick={() => handleApproval(record, true)}
+                                  className="p-1 bg-green-100 hover:bg-green-200 text-green-700 rounded-full transition"
+                                  title="Aprobar y Reportar"
+                                >
+                                  <Check className="w-5 h-5" />
+                                </button>
+                                <button 
+                                  onClick={() => handleApproval(record, false)}
+                                  className="p-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-full transition"
+                                  title="Rechazar y Reportar"
+                                >
+                                  <X className="w-5 h-5" />
+                                </button>
+                             </>
+                           )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400 italic">Auditoria Completada</span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))
             ) : (

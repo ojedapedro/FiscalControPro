@@ -39,7 +39,7 @@ const Dashboard: React.FC<DashboardProps> = ({ records }) => {
   
   // Fake "Pending" logic: assuming items with future dates or flagged in sheet are pending
   // For this demo, let's treat "Pending" status if available, or just random logic if not fully implemented in form
-  const pendingRecords = records.filter(r => r.status === 'Pending');
+  const pendingRecords = records.filter(r => r.status === 'Pending Review');
   const pendingAmount = pendingRecords.reduce((acc, curr) => acc + curr.amount, 0);
 
   // Upcoming deadlines (Next 30 days)

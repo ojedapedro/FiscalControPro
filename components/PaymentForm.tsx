@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Save, Share2, Loader2, CheckCircle, AlertCircle, X } from 'lucide-react';
+import { Save, Share2, Loader2, CheckCircle, AlertCircle, X, FileCheck } from 'lucide-react';
 import { PaymentRecord, PaymentType } from '../types';
 import { PAYMENT_TYPES, INITIAL_FORM_STATE } from '../constants';
 import { saveToSheet } from '../services/sheetService';
@@ -35,54 +35,48 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ onAddRecord, scriptUrl }) => 
     const newRecord: PaymentRecord = {
       id: crypto.randomUUID(),
       ...formData,
-      status: 'Pending'
+      status: 'Pending Review' // Default status for Step 1
     };
 
-    // Save to Google Sheet (if configured)
     const success = await saveToSheet(newRecord, scriptUrl);
     
-    // In this demo, we assume success to keep UI fluid, or rely on the return
     onAddRecord(newRecord);
     setLastId(newRecord.id);
     setFormData(INITIAL_FORM_STATE);
     
     if (success) {
-      showNotification("Registro guardado exitosamente.", 'success');
+      showNotification("Pago registrado y enviado a revisión.", 'success');
     } else {
       showNotification("Guardado localmente. Error conectando a la nube.", 'error');
     }
     setLoading(false);
   };
 
-  const handleWhatsApp = () => {
+  const handleReportToAuditor = () => {
     if (!lastId) {
-      showNotification("Primero registre un pago para notificar.", 'error');
+      showNotification("Primero registre un pago para generar el reporte.", 'error');
       return;
     }
     
-    const message = `*Notificación de Pago Realizado*%0A%0A` +
+    // Notification logic: Step 1 - Report to Auditor
+    const message = `*📋 Solicitud de Revisión de Pago*%0A%0A` +
+      `Estimado Auditor, se ha registrado un nuevo pago para su aprobación:%0A%0A` +
       `*Organismo:* ${formData.organism || 'N/A'}%0A` +
-      `*Descripción:* ${formData.description || 'N/A'}%0A` +
-      `*Tipo:* ${formData.paymentType}%0A` +
       `*Monto:* $${formData.amount.toFixed(2)}%0A` +
-      `*Fecha:* ${formData.paymentDateReal}%0A` +
-      `*Municipio:* ${formData.municipality || 'General'}%0A%0A` +
-      `_Enviado desde el Sistema de Gestión Administrativa._`;
+      `*Fecha Vencimiento:* ${formData.paymentDateReal}%0A` +
+      `*Descripción:* ${formData.description || 'Sin descripción'}%0A` +
+      `*Estado:* Pendiente de Revisión%0A%0A` +
+      `_Favor proceder con la validación en el sistema._`;
 
-    // If a phone number was entered, use it directly
-    const url = formData.contactPhone 
-      ? `https://wa.me/${formData.contactPhone.replace(/\D/g,'')}?text=${message}`
-      : `https://wa.me/?text=${message}`;
-
-    window.open(url, '_blank');
+    // Opens WhatsApp to send to the Auditor (or group)
+    window.open(`https://wa.me/?text=${message}`, '_blank');
   };
 
   return (
     <div className="bg-white rounded-lg shadow-xl overflow-hidden border border-gray-200 relative">
-      {/* Header matching the image */}
       <div className="bg-[#1e3a8a] text-white p-6 text-center">
-        <h2 className="text-2xl font-bold uppercase tracking-wide">Registro de Pagos y Servicios</h2>
-        <p className="text-blue-200 text-sm mt-1">Control Fiscal y Parafiscal</p>
+        <h2 className="text-2xl font-bold uppercase tracking-wide">Registro de Pagos</h2>
+        <p className="text-blue-200 text-sm mt-1">Paso 1: Registro y Notificación al Auditor</p>
       </div>
 
       <form onSubmit={handleSubmit} className="p-6 space-y-8">
@@ -182,7 +176,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ onAddRecord, scriptUrl }) => 
                 placeholder="Ej: 584121234567"
                 className="w-full border border-gray-300 rounded p-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <p className="text-xs text-gray-400 mt-1">Incluya código de país sin símbolos (Ej: 58...)</p>
+              <p className="text-xs text-gray-400 mt-1">Para recordatorios automáticos</p>
             </div>
           </div>
         </div>
@@ -240,11 +234,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ onAddRecord, scriptUrl }) => 
           
           <button
             type="button"
-            onClick={handleWhatsApp}
-            className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white font-semibold py-4 px-8 rounded shadow transition duration-200 flex justify-center items-center gap-2"
+            onClick={handleReportToAuditor}
+            className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-4 px-8 rounded shadow transition duration-200 flex justify-center items-center gap-2"
           >
-            <Share2 size={20} />
-            Notificar (Manual)
+            <FileCheck size={20} />
+            Notificar al Auditor (Reporte)
           </button>
         </div>
 

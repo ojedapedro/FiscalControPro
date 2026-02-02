@@ -14,6 +14,8 @@ export interface User {
   role: UserRole;
 }
 
+export type PaymentStatus = 'Pending Review' | 'Approved' | 'Rejected';
+
 export interface PaymentRecord {
   id: string;
   dateRegistered: string;
@@ -24,9 +26,9 @@ export interface PaymentRecord {
   unitCode: string;
   unitName: string;
   municipality: string;
-  status: 'Pending' | 'Paid';
+  status: PaymentStatus;
   description?: string;
-  contactPhone?: string; // New field for WhatsApp notifications
+  contactPhone?: string;
 }
 
 export interface BudgetSummary {
